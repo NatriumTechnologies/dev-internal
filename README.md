@@ -506,3 +506,5 @@ Internal development workspace
 <!-- coauthor test -->
 
 <!-- gold 1 -->
+
+<!-- gold 2 -->

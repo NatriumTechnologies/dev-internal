@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netprobe"
+version = "0.1.0"
+description = "High-speed asynchronous network scanner, port discovery engine, and live packet analyzer"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "Natrium Technologies Inc.", email = "admin@natrium.sh" }
+]
+keywords = [
+    "network-scanner",
+    "port-scanner",
+    "packet-sniffer",
+    "asyncio",
+    "infosec",
+    "cybersecurity",
+    "banner-grabbing"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Topic :: System :: Networking",
+    "Topic :: Security",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: MIT License",
+]
+
+[project.scripts]
+netprobe = "netprobe.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["netprobe*"]

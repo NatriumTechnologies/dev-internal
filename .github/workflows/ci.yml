@@ -7,41 +7,28 @@ on:
     branches: [ main ]
 
 jobs:
-  build:
-    name: ${{ matrix.name }}
+  test:
+    name: "${{ matrix.os }} / Python ${{ matrix.python-version }}"
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: "Windows (MSVC x64 Release)"
-            os: windows-latest
-            build_type: Release
-            cxx: cl
-          - name: "Linux (GCC x64 Release)"
-            os: ubuntu-latest
-            build_type: Release
-            cxx: g++
-          - name: "Linux (Clang x64 Release)"
-            os: ubuntu-latest
-            build_type: Release
-            cxx: clang++
+        os: [ ubuntu-latest, windows-latest, macos-latest ]
+        python-version: [ "3.10", "3.11", "3.12", "3.13" ]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure CMake
-        env:
-          CXX: ${{ matrix.cxx }}
-        run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DSYNAPSE_BUILD_TESTS=ON -DSYNAPSE_BUILD_BENCHMARKS=ON -DSYNAPSE_BUILD_EXAMPLES=ON
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
 
-      - name: Build
+      - name: Run unit test suite
         run: |
-          cmake --build build --config ${{ matrix.build_type }} --parallel
+          python -m unittest discover tests
 
-      - name: Run Tests
-        working-directory: build
+      - name: Test NetProbe CLI execution
         run: |
-          ctest -C ${{ matrix.build_type }} --output-on-failure
+          python -m netprobe scan 127.0.0.1 -p 80,443,8080 --json

@@ -1,5 +1,6 @@
 #include "synapse/channel.hpp"
 #include <bit>
+#include <new>
 
 namespace synapse {
 
@@ -29,7 +30,7 @@ Result<Publisher> Publisher::create(
     auto* layout = static_cast<ChannelLayout*>(shm.data());
 
     if (shm.is_creator()) {
-        std::memset(layout, 0, sizeof(ChannelLayout));
+        new (layout) ChannelLayout();
         layout->magic = kProtocolMagic;
         layout->version = kProtocolVersion;
         layout->total_shm_size = total_size;
@@ -196,7 +197,7 @@ Result<size_t> Subscriber::wait_and_poll(
     const uint32_t current_futex = ring_->notify_word().load(std::memory_order_relaxed);
     last_observed_futex_ = current_futex;
 
-    Futex::wait(ring_->notify_word(), current_futex, timeout);
+    (void)Futex::wait(ring_->notify_word(), current_futex, timeout);
     const size_t after_wait = poll(callback);
     return after_wait;
 }

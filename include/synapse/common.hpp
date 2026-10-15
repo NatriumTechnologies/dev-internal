@@ -8,18 +8,25 @@
 #include <atomic>
 #include <optional>
 #include <utility>
+#include <new>
 
 #if defined(_MSC_VER)
     #include <intrin.h>
     #define SYNAPSE_FORCE_INLINE __forceinline
     #define SYNAPSE_NOINLINE __declspec(noinline)
+    #define SYNAPSE_LIKELY(x)   (x)
+    #define SYNAPSE_UNLIKELY(x) (x)
 #elif defined(__GNUC__) || defined(__clang__)
     #include <x86intrin.h>
     #define SYNAPSE_FORCE_INLINE inline __attribute__((always_inline))
     #define SYNAPSE_NOINLINE __attribute__((noinline))
+    #define SYNAPSE_LIKELY(x)   (__builtin_expect(!!(x), 1))
+    #define SYNAPSE_UNLIKELY(x) (__builtin_expect(!!(x), 0))
 #else
     #define SYNAPSE_FORCE_INLINE inline
     #define SYNAPSE_NOINLINE
+    #define SYNAPSE_LIKELY(x)   (x)
+    #define SYNAPSE_UNLIKELY(x) (x)
 #endif
 
 namespace synapse {

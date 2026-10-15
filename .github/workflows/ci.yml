@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "Windows (MSVC x64 Release)"
+            os: windows-latest
+            build_type: Release
+            cxx: cl
+          - name: "Linux (GCC x64 Release)"
+            os: ubuntu-latest
+            build_type: Release
+            cxx: g++
+          - name: "Linux (Clang x64 Release)"
+            os: ubuntu-latest
+            build_type: Release
+            cxx: clang++
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        env:
+          CXX: ${{ matrix.cxx }}
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DSYNAPSE_BUILD_TESTS=ON -DSYNAPSE_BUILD_BENCHMARKS=ON -DSYNAPSE_BUILD_EXAMPLES=ON
+
+      - name: Build
+        run: |
+          cmake --build build --config ${{ matrix.build_type }} --parallel
+
+      - name: Run Tests
+        working-directory: build
+        run: |
+          ctest -C ${{ matrix.build_type }} --output-on-failure

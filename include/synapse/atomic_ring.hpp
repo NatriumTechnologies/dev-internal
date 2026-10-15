@@ -28,7 +28,8 @@ public:
           buffer_(buffer),
           capacity_(capacity),
           cached_read_index_(0),
-          cached_write_index_(0) {}
+          cached_write_index_(0),
+          pending_padding_(0) {}
 
     [[nodiscard]] size_t capacity() const noexcept { return capacity_; }
 
@@ -62,10 +63,10 @@ public:
 
     // Producer side: Zero-copy reservation of contiguous byte slot
     [[nodiscard]] uint8_t* claim(size_t size) noexcept {
-        const size_t total_needed = align8(sizeof(uint32_t) + size);
+        const size_t slot_bytes = align8(sizeof(uint32_t) + size);
         const size_t avail = available_write();
 
-        if (SYNAPSE_UNLIKELY(avail < total_needed)) {
+        if (SYNAPSE_UNLIKELY(avail < slot_bytes)) {
             return nullptr;
         }
 
@@ -74,8 +75,8 @@ public:
         const size_t space_to_end = capacity_ - offset;
 
         // If contiguous space to end of ring is too small, inject a wrap marker
-        if (SYNAPSE_UNLIKELY(space_to_end < total_needed)) {
-            if (avail < (space_to_end + total_needed)) {
+        if (SYNAPSE_UNLIKELY(space_to_end < slot_bytes)) {
+            if (avail < (space_to_end + slot_bytes)) {
                 return nullptr;
             }
 
@@ -83,15 +84,16 @@ public:
             auto* marker = reinterpret_cast<uint32_t*>(buffer_ + offset);
             *marker = kRingWrapMarker;
 
-            // Advance write index to wrap boundary
-            control_->write_index.store(write_idx + space_to_end, std::memory_order_release);
-            
+            // Remember padding to advance in commit(), do NOT update write_index yet
+            pending_padding_ = space_to_end;
+
             // Allocate at offset 0
             auto* slot_len_ptr = reinterpret_cast<uint32_t*>(buffer_);
             *slot_len_ptr = static_cast<uint32_t>(size);
             return buffer_ + sizeof(uint32_t);
         }
 
+        pending_padding_ = 0;
         auto* slot_len_ptr = reinterpret_cast<uint32_t*>(buffer_ + offset);
         *slot_len_ptr = static_cast<uint32_t>(size);
         return buffer_ + offset + sizeof(uint32_t);
@@ -99,9 +101,12 @@ public:
 
     // Producer side: Commit claimed reservation
     void commit(size_t size) noexcept {
-        const size_t total_written = align8(sizeof(uint32_t) + size);
+        const size_t slot_bytes = align8(sizeof(uint32_t) + size);
+        const size_t total_advance = pending_padding_ + slot_bytes;
+        pending_padding_ = 0;
+
         const uint64_t current_write = control_->write_index.load(std::memory_order_relaxed);
-        control_->write_index.store(current_write + total_written, std::memory_order_release);
+        control_->write_index.store(current_write + total_advance, std::memory_order_release);
     }
 
     // Consumer side: Available bytes to read
@@ -109,10 +114,10 @@ public:
         const uint64_t current_read = control_->read_index.load(std::memory_order_relaxed);
         uint64_t current_write = cached_write_index_;
 
-        if (current_read >= current_write) {
+        if (current_read == current_write) {
             current_write = control_->write_index.load(std::memory_order_acquire);
             cached_write_index_ = current_write;
-            if (current_read >= current_write) {
+            if (current_read == current_write) {
                 return 0;
             }
         }
@@ -135,7 +140,7 @@ public:
             const size_t space_to_end = capacity_ - offset;
             read_idx += space_to_end;
             control_->read_index.store(read_idx, std::memory_order_release);
-            
+
             if (available_read() == 0) {
                 out_size = 0;
                 return nullptr;
@@ -161,6 +166,7 @@ private:
     size_t capacity_;
     alignas(kCacheLineSize) uint64_t cached_read_index_;
     alignas(kCacheLineSize) uint64_t cached_write_index_;
+    size_t pending_padding_;
 };
 
 } // namespace synapse

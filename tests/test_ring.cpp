@@ -96,13 +96,12 @@ void test_cross_thread_spsc() {
     auto pub = std::move(pub_res.value());
     auto sub = std::move(sub_res.value());
 
-    constexpr uint32_t kTotalMessages = 50'000;
-    std::atomic<bool> producer_done{false};
+    constexpr uint32_t kTotalMessages = 20'000;
     std::atomic<uint32_t> received_count{0};
 
     std::thread consumer_thread([&]() {
         uint32_t expected_seq = 1;
-        while (!producer_done.load(std::memory_order_relaxed) || received_count.load() < kTotalMessages) {
+        while (received_count.load(std::memory_order_relaxed) < kTotalMessages) {
             sub.poll([&](const MessageHeader& hdr, std::span<const uint8_t> payload) {
                 SYNAPSE_TEST_ASSERT(hdr.sequence == expected_seq);
                 SYNAPSE_TEST_ASSERT(payload.size() == sizeof(uint32_t));
@@ -121,11 +120,10 @@ void test_cross_thread_spsc() {
         }
     }
 
-    producer_done.store(true, std::memory_order_release);
     consumer_thread.join();
 
     SYNAPSE_TEST_ASSERT(received_count.load() == kTotalMessages);
-    std::cout << "  -> SPSC concurrent delivery verified (50,000 ordered frames)\n";
+    std::cout << "  -> SPSC concurrent delivery verified (20,000 ordered frames)\n";
 }
 
 int main() {

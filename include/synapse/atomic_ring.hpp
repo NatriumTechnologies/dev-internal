@@ -3,7 +3,6 @@
 #include "synapse/common.hpp"
 #include <atomic>
 #include <cstring>
-#include <cassert>
 #include <span>
 
 namespace synapse {
@@ -20,16 +19,16 @@ public:
         alignas(kCacheLineSize) uint64_t capacity{0};
     };
 
+    [[nodiscard]] static constexpr size_t align8(size_t len) noexcept {
+        return (len + 7) & ~size_t(7);
+    }
+
     AtomicRingBuffer(ControlBlock* control, uint8_t* buffer, size_t capacity) noexcept
         : control_(control),
           buffer_(buffer),
           capacity_(capacity),
           cached_read_index_(0),
-          cached_write_index_(0) {
-        assert(control_ != nullptr);
-        assert(buffer_ != nullptr);
-        assert((capacity & (capacity - 1)) == 0 && "Capacity must be a power of two");
-    }
+          cached_write_index_(0) {}
 
     [[nodiscard]] size_t capacity() const noexcept { return capacity_; }
 
@@ -52,7 +51,6 @@ public:
         size_t consumed = static_cast<size_t>(current_write - current_read);
 
         if (consumed >= capacity_) {
-            // Refresh cached read cursor from shared memory
             cached_read_index_ = control_->read_index.load(std::memory_order_acquire);
             consumed = static_cast<size_t>(current_write - cached_read_index_);
             if (consumed >= capacity_) {
@@ -64,7 +62,7 @@ public:
 
     // Producer side: Zero-copy reservation of contiguous byte slot
     [[nodiscard]] uint8_t* claim(size_t size) noexcept {
-        const size_t total_needed = sizeof(uint32_t) + size;
+        const size_t total_needed = align8(sizeof(uint32_t) + size);
         const size_t avail = available_write();
 
         if (SYNAPSE_UNLIKELY(avail < total_needed)) {
@@ -101,7 +99,7 @@ public:
 
     // Producer side: Commit claimed reservation
     void commit(size_t size) noexcept {
-        const size_t total_written = sizeof(uint32_t) + size;
+        const size_t total_written = align8(sizeof(uint32_t) + size);
         const uint64_t current_write = control_->write_index.load(std::memory_order_relaxed);
         control_->write_index.store(current_write + total_written, std::memory_order_release);
     }
@@ -109,15 +107,16 @@ public:
     // Consumer side: Available bytes to read
     [[nodiscard]] size_t available_read() noexcept {
         const uint64_t current_read = control_->read_index.load(std::memory_order_relaxed);
-        const uint64_t current_write = cached_write_index_;
+        uint64_t current_write = cached_write_index_;
 
-        if (current_read == current_write) {
-            cached_write_index_ = control_->write_index.load(std::memory_order_acquire);
-            if (current_read == cached_write_index_) {
+        if (current_read >= current_write) {
+            current_write = control_->write_index.load(std::memory_order_acquire);
+            cached_write_index_ = current_write;
+            if (current_read >= current_write) {
                 return 0;
             }
         }
-        return static_cast<size_t>(cached_write_index_ - current_read);
+        return static_cast<size_t>(current_write - current_read);
     }
 
     // Consumer side: Peek next contiguous slot without copying
@@ -151,7 +150,7 @@ public:
 
     // Consumer side: Release consumed slot
     void consume(size_t size) noexcept {
-        const size_t total_consumed = sizeof(uint32_t) + size;
+        const size_t total_consumed = align8(sizeof(uint32_t) + size);
         const uint64_t current_read = control_->read_index.load(std::memory_order_relaxed);
         control_->read_index.store(current_read + total_consumed, std::memory_order_release);
     }

@@ -59,7 +59,7 @@ Result<SharedMemory> SharedMemory::open(
     size_t size,
     ShmAccess access
 ) {
-    if (name.empty() || size == 0) {
+    if (name.empty()) {
         return Status::InvalidArgument;
     }
 
@@ -111,10 +111,19 @@ Result<SharedMemory> SharedMemory::open(
         }
     }
 
-    void* ptr = MapViewOfFile(h_map, FILE_MAP_ALL_ACCESS, 0, 0, size);
+    // On Windows, passing 0 as dwNumberOfBytesToMap maps the entire file mapping
+    const SIZE_T bytes_to_map = (access == ShmAccess::OpenExisting) ? 0 : size;
+    void* ptr = MapViewOfFile(h_map, FILE_MAP_ALL_ACCESS, 0, 0, bytes_to_map);
     if (!ptr) {
         CloseHandle(h_map);
         return Status::ShmMapFailed;
+    }
+
+    if (access == ShmAccess::OpenExisting) {
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (VirtualQuery(ptr, &mbi, sizeof(mbi)) != 0) {
+            shm.size_ = mbi.RegionSize;
+        }
     }
 
     shm.handle_ = h_map;
@@ -147,15 +156,23 @@ Result<SharedMemory> SharedMemory::open(
     }
 
     struct stat sb{};
-    if (fstat(fd, &sb) == 0 && sb.st_size == 0) {
+    if (fstat(fd, &sb) != 0) {
+        ::close(fd);
+        return Status::ShmCreationFailed;
+    }
+
+    if (sb.st_size == 0) {
         if (ftruncate(fd, static_cast<off_t>(size)) != 0) {
             ::close(fd);
             return Status::ShmCreationFailed;
         }
+        shm.size_ = size;
         created = true;
+    } else {
+        shm.size_ = static_cast<size_t>(sb.st_size);
     }
 
-    void* ptr = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    void* ptr = mmap(nullptr, shm.size_, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (ptr == MAP_FAILED) {
         ::close(fd);
         return Status::ShmMapFailed;
